@@ -34,41 +34,92 @@ document.addEventListener('DOMContentLoaded', function() {
     // Setup event listeners
     setupEventListeners();
 
-    console.log("Game ready");
+    console.log("Game initialized successfully");
   } catch (error) {
     console.error("Initialization error:", error);
-    alert("Game failed to initialize. Check console.");
+    alert("Game failed to initialize. Please check console for details.");
   }
 });
 
 function setupEventListeners() {
-  // Game control buttons
-  document.getElementById('start-game').addEventListener('click', startNewGame);
-  document.getElementById('join-game').addEventListener('click', joinExistingGame);
-  
-  // Game ID input
-  document.getElementById('game-id-input').addEventListener('input', function() {
-    document.getElementById('join-game').disabled = this.value.trim() === '';
-  });
+  // Safe element checking
+  const getElement = (id) => {
+    const el = document.getElementById(id);
+    if (!el) console.error(`Element with ID '${id}' not found`);
+    return el;
+  };
 
-  // Card actions
-  document.querySelector('#draw-pile').addEventListener('click', handleDraw);
-  document.querySelector('#discard-pile').addEventListener('click', handlePickupDiscard);
-  document.getElementById('discard-btn').addEventListener('click', discardCard);
+  // Start game button
+  const startGameBtn = getElement('start-game');
+  if (startGameBtn) {
+    startGameBtn.addEventListener('click', function() {
+      startNewGame().catch(error => {
+        console.error("Game start failed:", error);
+        alert("Failed to start game. See console for details.");
+      });
+    });
+  }
+
+  // Join game button
+  const joinGameBtn = getElement('join-game');
+  if (joinGameBtn) {
+    joinGameBtn.addEventListener('click', function() {
+      joinExistingGame().catch(error => {
+        console.error("Join game failed:", error);
+        alert("Failed to join game. See console for details.");
+      });
+    });
+  }
+
+  // Game ID input
+  const gameIdInput = getElement('game-id-input');
+  if (gameIdInput && joinGameBtn) {
+    gameIdInput.addEventListener('input', function() {
+      joinGameBtn.disabled = this.value.trim() === '';
+    });
+  }
+
+  // Draw pile
+  const drawPile = document.querySelector('#draw-pile .cards');
+  if (drawPile) {
+    drawPile.addEventListener('click', handleDraw);
+  }
+
+  // Discard pile
+  const discardPile = document.querySelector('#discard-pile .cards');
+  if (discardPile) {
+    discardPile.addEventListener('click', handlePickupDiscard);
+  }
+
+  // Discard button
+  const discardBtn = getElement('discard-btn');
+  if (discardBtn) {
+    discardBtn.addEventListener('click', discardCard);
+  }
 
   // Meld controls
-  document.getElementById('confirm-meld').addEventListener('click', confirmMeld);
-  document.getElementById('cancel-meld').addEventListener('click', cancelMeld);
+  const confirmMeldBtn = getElement('confirm-meld');
+  if (confirmMeldBtn) {
+    confirmMeldBtn.addEventListener('click', confirmMeld);
+  }
+
+  const cancelMeldBtn = getElement('cancel-meld');
+  if (cancelMeldBtn) {
+    cancelMeldBtn.addEventListener('click', cancelMeld);
+  }
 }
 
 async function startNewGame() {
   const startGameBtn = document.getElementById('start-game');
+  if (!startGameBtn) return;
+  
   startGameBtn.disabled = true;
   
   try {
-    // Create game ID
+    // Generate game ID
     gameId = "game_" + Math.random().toString(36).substring(2, 9);
-    document.getElementById('game-id-input').value = gameId;
+    const gameIdInput = document.getElementById('game-id-input');
+    if (gameIdInput) gameIdInput.value = gameId;
     
     // Create and shuffle deck
     const deck = shuffleDeck(createDeck());
@@ -86,8 +137,8 @@ async function startNewGame() {
       deck: deck,
       discardPile: [initialDiscard],
       currentRound: 1,
-      currentPlayer: playerId, // First player starts
-      currentPhase: "draw",   // Start in draw phase
+      currentPlayer: playerId,
+      currentPhase: "draw",
       contract: getContractForRound(1),
       players: {
         [playerId]: {
@@ -112,7 +163,7 @@ async function startNewGame() {
     
   } catch (error) {
     console.error("Error starting game:", error);
-    alert("Failed to start game. See console.");
+    alert("Failed to start game. See console for details.");
   } finally {
     startGameBtn.disabled = false;
   }
@@ -120,10 +171,15 @@ async function startNewGame() {
 
 async function joinExistingGame() {
   const joinGameBtn = document.getElementById('join-game');
+  if (!joinGameBtn) return;
+  
   joinGameBtn.disabled = true;
   
   try {
-    gameId = document.getElementById('game-id-input').value.trim();
+    const gameIdInput = document.getElementById('game-id-input');
+    if (!gameIdInput) throw new Error("Game ID input not found");
+    
+    gameId = gameIdInput.value.trim();
     if (!gameId) throw new Error("Please enter game ID");
     
     // Check if game exists
@@ -161,6 +217,8 @@ async function joinExistingGame() {
 }
 
 function setupGameListeners() {
+  if (!gameId) return;
+  
   database.ref('games/' + gameId).on('value', function(snapshot) {
     gameState = snapshot.val() || {};
     
@@ -190,22 +248,29 @@ function renderGame() {
   if (!gameState) return;
   
   // Update game info
-  document.getElementById('round').textContent = gameState.currentRound || 1;
-  document.getElementById('contract').textContent = gameState.contract || "2 Trios";
+  const roundEl = document.getElementById('round');
+  if (roundEl) roundEl.textContent = gameState.currentRound || 1;
+  
+  const contractEl = document.getElementById('contract');
+  if (contractEl) contractEl.textContent = gameState.contract || "2 Trios";
   
   // Update turn indicator
   const turnEl = document.getElementById('current-turn');
-  turnEl.textContent = isMyTurn ? "YOUR TURN" : "OPPONENT'S TURN";
-  turnEl.className = isMyTurn ? "your-turn" : "opponent-turn";
+  if (turnEl) {
+    turnEl.textContent = isMyTurn ? "YOUR TURN" : "OPPONENT'S TURN";
+    turnEl.className = isMyTurn ? "your-turn" : "opponent-turn";
+  }
   
   // Update phase indicator
   const phaseEl = document.getElementById('current-phase');
-  if (isMyTurn) {
-    phaseEl.textContent = mustDiscard ? "DISCARD A CARD" : "DRAW A CARD";
-    phaseEl.className = mustDiscard ? "discard-phase" : "draw-phase";
-  } else {
-    phaseEl.textContent = "WAITING...";
-    phaseEl.className = "wait-phase";
+  if (phaseEl) {
+    if (isMyTurn) {
+      phaseEl.textContent = mustDiscard ? "DISCARD A CARD" : "DRAW A CARD";
+      phaseEl.className = mustDiscard ? "discard-phase" : "draw-phase";
+    } else {
+      phaseEl.textContent = "WAITING...";
+      phaseEl.className = "wait-phase";
+    }
   }
   
   // Render player's hand
@@ -226,6 +291,8 @@ function renderGame() {
 
 function renderHand() {
   const handEl = document.getElementById('player-hand');
+  if (!handEl) return;
+  
   handEl.innerHTML = '';
   
   currentPlayerHand.forEach((card, index) => {
@@ -243,6 +310,8 @@ function renderHand() {
 
 function renderMelds() {
   const meldsEl = document.getElementById('player-melds');
+  if (!meldsEl) return;
+  
   meldsEl.innerHTML = '';
   
   const melds = gameState.players?.[playerId]?.melds || [];
@@ -268,6 +337,8 @@ function renderMelds() {
 
 function renderDiscardPile() {
   const pileEl = document.querySelector('#discard-pile .cards');
+  if (!pileEl) return;
+  
   pileEl.innerHTML = '';
   
   if (gameState.discardPile?.length > 0) {
@@ -281,6 +352,8 @@ function renderDiscardPile() {
 
 function renderDrawPile() {
   const pileEl = document.querySelector('#draw-pile .cards');
+  if (!pileEl) return;
+  
   pileEl.innerHTML = '';
   
   if (gameState.deck?.length > 0) {
@@ -294,18 +367,22 @@ function renderDrawPile() {
 function updateButtonStates() {
   // Discard button
   const discardBtn = document.getElementById('discard-btn');
-  discardBtn.disabled = !(isMyTurn && mustDiscard && selectedCards.length === 1);
+  if (discardBtn) {
+    discardBtn.disabled = !(isMyTurn && mustDiscard && selectedCards.length === 1);
+  }
   
   // Pile interactivity
   const drawPile = document.querySelector('#draw-pile');
   const discardPile = document.querySelector('#discard-pile');
   
-  if (isMyTurn && !hasDrawnCard) {
-    drawPile.classList.add('clickable');
-    discardPile.classList.add('clickable');
-  } else {
-    drawPile.classList.remove('clickable');
-    discardPile.classList.remove('clickable');
+  if (drawPile) {
+    drawPile.style.cursor = isMyTurn && !hasDrawnCard ? "pointer" : "default";
+    drawPile.style.opacity = isMyTurn && !hasDrawnCard ? "1" : "0.7";
+  }
+  
+  if (discardPile) {
+    discardPile.style.cursor = isMyTurn && !hasDrawnCard ? "pointer" : "default";
+    discardPile.style.opacity = isMyTurn && !hasDrawnCard ? "1" : "0.7";
   }
 }
 
@@ -448,7 +525,43 @@ function cancelMeld() {
 }
 
 function validateMeld(cards, contract) {
-  // ... (same validation logic as before) ...
+  if (!cards || cards.length < 3) return false;
+  
+  switch (contract) {
+    case "2 Trios":
+      return cards.length >= 6 && 
+             isTrio(cards.slice(0, 3)) && 
+             isTrio(cards.slice(3, 6));
+    case "1 Trio + 1 Sequence of 4":
+      return (isTrio(cards.slice(0, 3)) && isSequence(cards.slice(3, 7))) ||
+             (isSequence(cards.slice(0, 4)) && isTrio(cards.slice(4, 7)));
+    case "2 Sequences of 4":
+      return cards.length >= 8 && 
+             isSequence(cards.slice(0, 4)) && 
+             isSequence(cards.slice(4, 8));
+    case "3 Trios":
+      return cards.length >= 9 && 
+             isTrio(cards.slice(0, 3)) && 
+             isTrio(cards.slice(3, 6)) && 
+             isTrio(cards.slice(6, 9));
+    case "2 Trios + 1 Sequence of 4":
+      return cards.length >= 10 &&
+             isTrio(cards.slice(0, 3)) &&
+             isTrio(cards.slice(3, 6)) &&
+             isSequence(cards.slice(6, 10));
+    case "2 Sequences of 4 + 1 Trio":
+      return cards.length >= 11 &&
+             isSequence(cards.slice(0, 4)) &&
+             isSequence(cards.slice(4, 8)) &&
+             isTrio(cards.slice(8, 11));
+    case "3 Sequences of 4":
+      return cards.length >= 12 &&
+             isSequence(cards.slice(0, 4)) &&
+             isSequence(cards.slice(4, 8)) &&
+             isSequence(cards.slice(8, 12));
+    default:
+      return false;
+  }
 }
 
 function getContractForRound(round) {
