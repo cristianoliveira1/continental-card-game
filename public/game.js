@@ -419,3 +419,10 @@ function getContractForRound(round) {
   ];
   return contracts[round - 1] || "Unknown Contract";
 }
+
+// Temporary debug code
+console.log("Script loaded successfully");
+document.getElementById('start-game').addEventListener('click', () => {
+  console.log("Button clicked!");
+  alert("Button is working!");
+});
