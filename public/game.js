@@ -126,6 +126,17 @@ function createFallbackDiscardButton() {
   console.log("Created fallback discard button");
 }
 
+function validateGameState(state) {
+  if (!state) return false;
+  return (
+    Array.isArray(state.deck) &&
+    (Array.isArray(state.discardPile) || state.discardPile === undefined) &&
+    typeof state.players === 'object' &&
+    typeof state.currentPlayer === 'string' &&
+    typeof state.currentPhase === 'string'
+  );
+}
+
 async function startNewGame() {
   const startGameBtn = document.getElementById('start-game');
   if (!startGameBtn) return;
@@ -149,10 +160,10 @@ async function startNewGame() {
     // Start discard pile with one card
     const initialDiscard = deck.pop();
     
-    // Create game data
+    // Create game data with guaranteed array for discardPile
     const gameData = {
       deck: deck,
-      discardPile: [initialDiscard],
+      discardPile: initialDiscard ? [initialDiscard] : [],
       currentRound: 1,
       currentPlayer: playerId,
       currentPhase: "draw",
@@ -205,6 +216,16 @@ async function joinExistingGame() {
     
     gameState = snapshot.val();
     
+    // Validate game state
+    if (!validateGameState(gameState)) {
+      throw new Error("Invalid game state found");
+    }
+    
+    // Initialize discardPile if missing
+    if (!Array.isArray(gameState.discardPile)) {
+      gameState.discardPile = [];
+    }
+    
     // Add player if new
     if (!gameState.players[playerId]) {
       const deck = gameState.deck;
@@ -238,22 +259,25 @@ function setupGameListeners() {
   
   database.ref('games/' + gameId).on('value', function(snapshot) {
     const newState = snapshot.val();
-    if (!newState) return;
     
-    // Validate game state
-    if (!newState.players || !newState.currentPlayer) {
-      console.error("Invalid game state received", newState);
+    if (!validateGameState(newState)) {
+      console.error("Invalid game state received:", newState);
       return;
     }
     
     gameState = newState;
     
+    // Initialize discardPile if missing
+    if (!Array.isArray(gameState.discardPile)) {
+      gameState.discardPile = [];
+    }
+    
     // Update player hand
-    if (gameState.players[playerId]) {
+    if (gameState.players && gameState.players[playerId]) {
       currentPlayerHand = gameState.players[playerId].hand || [];
     }
     
-    // Update turn status with additional validation
+    // Update turn status
     isMyTurn = gameState.currentPlayer === playerId;
     
     // Update phase tracking
@@ -444,7 +468,8 @@ async function handleDraw() {
       // Verify game state is still valid for drawing
       if (currentData.currentPlayer !== playerId || 
           currentData.currentPhase !== "draw" ||
-          !currentData.deck?.length) {
+          !Array.isArray(currentData.deck) ||
+          currentData.deck.length === 0) {
         return currentData;
       }
       
@@ -461,12 +486,12 @@ async function handleDraw() {
     
   } catch (error) {
     console.error("Error drawing card:", error);
-    alert("Failed to draw card");
+    alert("Failed to draw card. Please try again.");
   }
 }
 
 async function handlePickupDiscard() {
-  if (!isMyTurn || hasDrawnCard || gameState.currentPhase !== "draw" || !gameState.discardPile?.length) return;
+  if (!isMyTurn || hasDrawnCard || gameState.currentPhase !== "draw") return;
   
   try {
     // Use transaction for discard pickup
@@ -476,7 +501,8 @@ async function handlePickupDiscard() {
       // Verify valid state
       if (currentData.currentPlayer !== playerId || 
           currentData.currentPhase !== "draw" ||
-          !currentData.discardPile?.length) {
+          !Array.isArray(currentData.discardPile) ||
+          currentData.discardPile.length === 0) {
         return currentData;
       }
       
@@ -493,7 +519,7 @@ async function handlePickupDiscard() {
     
   } catch (error) {
     console.error("Error picking from discard:", error);
-    alert("Failed to pick up card");
+    alert("Failed to pick up card. Please try again.");
   }
 }
 
@@ -509,10 +535,16 @@ async function discardCard() {
     await database.ref('games/' + gameId).transaction((currentData) => {
       if (!currentData) return null;
       
-      // Verify it's still our turn
+      // Verify it's still our turn and we have valid data
       if (currentData.currentPlayer !== playerId || 
-          currentData.currentPhase !== "discard") {
+          currentData.currentPhase !== "discard" ||
+          !currentData.players?.[playerId]?.hand) {
         return currentData;
+      }
+      
+      // Initialize discardPile if it doesn't exist
+      if (!Array.isArray(currentData.discardPile)) {
+        currentData.discardPile = [];
       }
       
       // Update game state
@@ -529,7 +561,7 @@ async function discardCard() {
     
   } catch (error) {
     console.error("Error discarding card:", error);
-    alert("Failed to discard card");
+    alert("Failed to discard card. Please try again.");
   }
 }
 
