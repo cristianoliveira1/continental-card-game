@@ -5,19 +5,53 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Portuguese Continental</title>
   <link rel="stylesheet" href="style.css">
-  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 </head>
 <body>
-  <div id="game">
+  <div id="game-container">
     <h1>Portuguese Continental</h1>
-    <div id="round-info">Round: <span id="round">1</span> | Contract: <span id="contract">2 Trios</span></div>
-    <div id="hand" class="hand"></div>
-    <div id="discard-pile"></div>
-    <button id="startGame">Start Game</button>
+    <div id="game-info">
+      <div>Round: <span id="round">1</span></div>
+      <div>Contract: <span id="contract">2 Trios</span></div>
+      <div>Turn: <span id="current-turn">You</span></div>
+    </div>
+    
+    <div id="game-controls">
+      <button id="start-game">Start New Game</button>
+      <button id="join-game" disabled>Join Game</button>
+      <input type="text" id="game-id-input" placeholder="Enter Game ID">
+    </div>
+    
+    <div id="game-board">
+      <div id="player-area">
+        <h3>Your Hand</h3>
+        <div id="player-hand" class="hand"></div>
+        <h3>Your Melds</h3>
+        <div id="player-melds" class="melds-area"></div>
+      </div>
+      
+      <div id="shared-area">
+        <div id="discard-pile" class="pile">
+          <h3>Discard Pile</h3>
+          <div class="cards"></div>
+        </div>
+        <div id="draw-pile" class="pile">
+          <h3>Draw Pile</h3>
+          <div class="cards"></div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="meld-controls" class="hidden">
+      <h3>Create Meld</h3>
+      <div id="selected-cards" class="hand"></div>
+      <button id="confirm-meld">Confirm Meld</button>
+      <button id="cancel-meld">Cancel</button>
+    </div>
   </div>
+
   <script src="cards.js"></script>
-  <script src="app.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>
