@@ -10,7 +10,7 @@ const firebaseConfig = {
   measurementId: "G-82PMRG5B0S"
 };
 
-// Global game variables
+// Game state variables
 let database;
 let gameId;
 let playerId = "player_" + Math.random().toString(36).substring(2, 9);
@@ -18,8 +18,10 @@ let currentPlayerHand = [];
 let selectedCards = [];
 let gameState = {};
 let isMyTurn = false;
+let hasDrawnCard = false;
+let mustDiscard = false;
 
-// Initialize everything when DOM is loaded
+// Initialize game when DOM loads
 document.addEventListener('DOMContentLoaded', function() {
   try {
     // Initialize Firebase
@@ -27,55 +29,36 @@ document.addEventListener('DOMContentLoaded', function() {
       firebase.initializeApp(firebaseConfig);
     }
     database = firebase.database();
-    console.log("Firebase initialized successfully");
+    console.log("Firebase initialized");
 
-    // Setup all event listeners
+    // Setup event listeners
     setupEventListeners();
 
-    // Test connection
-    testFirebaseConnection();
-
-    console.log("Game initialized successfully");
+    console.log("Game ready");
   } catch (error) {
     console.error("Initialization error:", error);
-    alert("Game failed to initialize. Check console for details.");
+    alert("Game failed to initialize. Check console.");
   }
 });
 
 function setupEventListeners() {
-  // Start game button
-  document.getElementById('start-game').addEventListener('click', function() {
-    console.log("Start game button clicked");
-    startNewGame().catch(error => {
-      console.error("Game start failed:", error);
-      alert("Failed to start game. See console for details.");
-    });
-  });
-
-  // Join game button
-  document.getElementById('join-game').addEventListener('click', function() {
-    console.log("Join game button clicked");
-    joinExistingGame().catch(error => {
-      console.error("Join game failed:", error);
-      alert("Failed to join game. See console for details.");
-    });
-  });
-
+  // Game control buttons
+  document.getElementById('start-game').addEventListener('click', startNewGame);
+  document.getElementById('join-game').addEventListener('click', joinExistingGame);
+  
   // Game ID input
   document.getElementById('game-id-input').addEventListener('input', function() {
     document.getElementById('join-game').disabled = this.value.trim() === '';
   });
 
+  // Card actions
+  document.querySelector('#draw-pile').addEventListener('click', handleDraw);
+  document.querySelector('#discard-pile').addEventListener('click', handlePickupDiscard);
+  document.getElementById('discard-btn').addEventListener('click', discardCard);
+
   // Meld controls
   document.getElementById('confirm-meld').addEventListener('click', confirmMeld);
   document.getElementById('cancel-meld').addEventListener('click', cancelMeld);
-}
-
-function testFirebaseConnection() {
-  const connectedRef = database.ref('.info/connected');
-  connectedRef.on('value', function(snap) {
-    console.log(snap.val() ? "Connected to Firebase" : "Disconnected from Firebase");
-  });
 }
 
 async function startNewGame() {
@@ -83,28 +66,28 @@ async function startNewGame() {
   startGameBtn.disabled = true;
   
   try {
-    console.log("Starting new game process...");
-    
-    // Generate game ID
+    // Create game ID
     gameId = "game_" + Math.random().toString(36).substring(2, 9);
     document.getElementById('game-id-input').value = gameId;
-    console.log("Game ID:", gameId);
     
     // Create and shuffle deck
     const deck = shuffleDeck(createDeck());
-    console.log("Deck created and shuffled");
     
-    // Deal initial hands (2 players for demo)
+    // Deal initial hands (2 players)
     const player1Hand = deck.splice(0, 10);
     const player2Hand = deck.splice(0, 10);
     currentPlayerHand = player1Hand;
     
-    // Create game data structure
+    // Start discard pile with one card
+    const initialDiscard = deck.pop();
+    
+    // Create game data
     const gameData = {
       deck: deck,
-      discardPile: [],
+      discardPile: [initialDiscard],
       currentRound: 1,
-      currentPlayer: playerId,
+      currentPlayer: playerId, // First player starts
+      currentPhase: "draw",   // Start in draw phase
       contract: getContractForRound(1),
       players: {
         [playerId]: {
@@ -119,22 +102,17 @@ async function startNewGame() {
       createdAt: firebase.database.ServerValue.TIMESTAMP
     };
     
-    // Write to Firebase
-    console.log("Writing to database...");
+    // Save to Firebase
     await database.ref('games/' + gameId).set(gameData);
-    console.log("Game data written successfully");
     
-    // Set up real-time listeners
+    // Setup real-time updates
     setupGameListeners();
     
-    // Initial render
-    renderGame();
-    
-    alert("Game started successfully!\nShare this ID: " + gameId);
+    alert(`Game started! Share ID: ${gameId}`);
     
   } catch (error) {
-    console.error("Error in startNewGame:", error);
-    throw error; // Re-throw for caller to handle
+    console.error("Error starting game:", error);
+    alert("Failed to start game. See console.");
   } finally {
     startGameBtn.disabled = false;
   }
@@ -146,22 +124,15 @@ async function joinExistingGame() {
   
   try {
     gameId = document.getElementById('game-id-input').value.trim();
-    if (!gameId) {
-      throw new Error("Please enter a game ID");
-    }
-    
-    console.log("Attempting to join game:", gameId);
+    if (!gameId) throw new Error("Please enter game ID");
     
     // Check if game exists
     const snapshot = await database.ref('games/' + gameId).once('value');
-    if (!snapshot.exists()) {
-      throw new Error("Game not found. Please check the ID.");
-    }
+    if (!snapshot.exists()) throw new Error("Game not found");
     
     gameState = snapshot.val();
-    console.log("Game found:", gameState);
     
-    // Add player if not already in game
+    // Add player if new
     if (!gameState.players[playerId]) {
       const deck = gameState.deck;
       const newPlayerHand = deck.splice(0, 10);
@@ -178,32 +149,22 @@ async function joinExistingGame() {
       currentPlayerHand = gameState.players[playerId].hand;
     }
     
-    console.log("Player added to game successfully");
-    
-    // Set up real-time listeners
+    // Setup real-time updates
     setupGameListeners();
     
-    // Initial render
-    renderGame();
-    
-    alert("Successfully joined game: " + gameId);
-    
   } catch (error) {
-    console.error("Error in joinExistingGame:", error);
-    throw error; // Re-throw for caller to handle
+    console.error("Error joining game:", error);
+    alert(error.message);
   } finally {
     joinGameBtn.disabled = false;
   }
 }
 
 function setupGameListeners() {
-  console.log("Setting up game listeners for:", gameId);
-  
   database.ref('games/' + gameId).on('value', function(snapshot) {
     gameState = snapshot.val() || {};
-    console.log("Game state updated:", gameState);
     
-    // Update local references
+    // Update player hand
     if (gameState.players && gameState.players[playerId]) {
       currentPlayerHand = gameState.players[playerId].hand;
     }
@@ -211,26 +172,41 @@ function setupGameListeners() {
     // Update turn status
     isMyTurn = gameState.currentPlayer === playerId;
     
-    // Re-render the game
+    // Update phase tracking
+    if (isMyTurn) {
+      hasDrawnCard = gameState.currentPhase === "discard";
+      mustDiscard = gameState.currentPhase === "discard";
+    } else {
+      hasDrawnCard = false;
+      mustDiscard = false;
+    }
+    
+    // Update UI
     renderGame();
   });
 }
 
 function renderGame() {
-  if (!gameState) {
-    console.warn("No game state to render");
-    return;
-  }
-  
-  console.log("Rendering game state...");
+  if (!gameState) return;
   
   // Update game info
   document.getElementById('round').textContent = gameState.currentRound || 1;
   document.getElementById('contract').textContent = gameState.contract || "2 Trios";
   
-  const currentTurnEl = document.getElementById('current-turn');
-  currentTurnEl.textContent = isMyTurn ? "Your turn" : "Opponent's turn";
-  currentTurnEl.style.color = isMyTurn ? "green" : "red";
+  // Update turn indicator
+  const turnEl = document.getElementById('current-turn');
+  turnEl.textContent = isMyTurn ? "YOUR TURN" : "OPPONENT'S TURN";
+  turnEl.className = isMyTurn ? "your-turn" : "opponent-turn";
+  
+  // Update phase indicator
+  const phaseEl = document.getElementById('current-phase');
+  if (isMyTurn) {
+    phaseEl.textContent = mustDiscard ? "DISCARD A CARD" : "DRAW A CARD";
+    phaseEl.className = mustDiscard ? "discard-phase" : "draw-phase";
+  } else {
+    phaseEl.textContent = "WAITING...";
+    phaseEl.className = "wait-phase";
+  }
   
   // Render player's hand
   renderHand();
@@ -243,191 +219,124 @@ function renderGame() {
   
   // Render draw pile
   renderDrawPile();
+  
+  // Update button states
+  updateButtonStates();
 }
 
 function renderHand() {
-  const playerHandEl = document.getElementById('player-hand');
-  playerHandEl.innerHTML = '';
+  const handEl = document.getElementById('player-hand');
+  handEl.innerHTML = '';
   
-  currentPlayerHand.forEach(function(card, index) {
+  currentPlayerHand.forEach((card, index) => {
     const cardEl = document.createElement('div');
-    cardEl.className = 'card';
+    cardEl.className = 'card' + (selectedCards.includes(index) ? ' selected' : '');
     cardEl.textContent = getCardDisplay(card);
-    cardEl.dataset.index = index;
-    
-    if (selectedCards.includes(index)) {
-      cardEl.classList.add('selected');
-    }
     
     if (isMyTurn) {
-      cardEl.addEventListener('click', function() {
-        selectCard(index);
-      });
+      cardEl.addEventListener('click', () => selectCard(index));
     }
     
-    playerHandEl.appendChild(cardEl);
+    handEl.appendChild(cardEl);
   });
 }
 
 function renderMelds() {
-  const playerMeldsEl = document.getElementById('player-melds');
-  playerMeldsEl.innerHTML = '';
-  const melds = gameState.players?.[playerId]?.melds || [];
+  const meldsEl = document.getElementById('player-melds');
+  meldsEl.innerHTML = '';
   
-  melds.forEach(function(meld, i) {
-    const meldEl = document.createElement('div');
-    meldEl.className = 'meld';
-    meldEl.innerHTML = `<h4>Meld ${i + 1}</h4><div class="meld-cards"></div>`;
+  const melds = gameState.players?.[playerId]?.melds || [];
+  melds.forEach((meld, i) => {
+    const meldGroup = document.createElement('div');
+    meldGroup.className = 'meld-group';
+    meldGroup.innerHTML = `<div class="meld-title">Meld ${i+1}</div>`;
     
-    const cardsContainer = meldEl.querySelector('.meld-cards');
-    meld.forEach(function(card) {
+    const cardsContainer = document.createElement('div');
+    cardsContainer.className = 'meld-cards';
+    
+    meld.forEach(card => {
       const cardEl = document.createElement('div');
       cardEl.className = 'card';
       cardEl.textContent = getCardDisplay(card);
       cardsContainer.appendChild(cardEl);
     });
     
-    playerMeldsEl.appendChild(meldEl);
+    meldGroup.appendChild(cardsContainer);
+    meldsEl.appendChild(meldGroup);
   });
 }
 
 function renderDiscardPile() {
-  const discardPileEl = document.querySelector('#discard-pile .cards');
-  discardPileEl.innerHTML = '';
-  const discardPile = gameState.discardPile || [];
+  const pileEl = document.querySelector('#discard-pile .cards');
+  pileEl.innerHTML = '';
   
-  if (discardPile.length > 0) {
-    const topCard = discardPile[discardPile.length - 1];
+  if (gameState.discardPile?.length > 0) {
+    const topCard = gameState.discardPile[gameState.discardPile.length - 1];
     const cardEl = document.createElement('div');
     cardEl.className = 'card';
     cardEl.textContent = getCardDisplay(topCard);
-    
-    if (isMyTurn) {
-      cardEl.addEventListener('click', pickupFromDiscard);
-    }
-    
-    discardPileEl.appendChild(cardEl);
+    pileEl.appendChild(cardEl);
   }
 }
 
 function renderDrawPile() {
-  const drawPileEl = document.querySelector('#draw-pile .cards');
-  drawPileEl.innerHTML = '';
-  const deck = gameState.deck || [];
+  const pileEl = document.querySelector('#draw-pile .cards');
+  pileEl.innerHTML = '';
   
-  if (deck.length > 0) {
+  if (gameState.deck?.length > 0) {
     const cardEl = document.createElement('div');
-    cardEl.className = 'card';
-    cardEl.textContent = '🂠'; // Card back
-    
-    if (isMyTurn) {
-      cardEl.addEventListener('click', drawCard);
-    }
-    
-    drawPileEl.appendChild(cardEl);
+    cardEl.className = 'card-back';
+    cardEl.textContent = '🂠';
+    pileEl.appendChild(cardEl);
+  }
+}
+
+function updateButtonStates() {
+  // Discard button
+  const discardBtn = document.getElementById('discard-btn');
+  discardBtn.disabled = !(isMyTurn && mustDiscard && selectedCards.length === 1);
+  
+  // Pile interactivity
+  const drawPile = document.querySelector('#draw-pile');
+  const discardPile = document.querySelector('#discard-pile');
+  
+  if (isMyTurn && !hasDrawnCard) {
+    drawPile.classList.add('clickable');
+    discardPile.classList.add('clickable');
+  } else {
+    drawPile.classList.remove('clickable');
+    discardPile.classList.remove('clickable');
   }
 }
 
 function selectCard(index) {
   if (!isMyTurn) return;
   
-  const cardIndex = selectedCards.indexOf(index);
-  if (cardIndex === -1) {
-    selectedCards.push(index);
-  } else {
-    selectedCards.splice(cardIndex, 1);
-  }
-  
-  renderHand();
-  
-  if (selectedCards.length >= 3) {
-    showMeldControls();
-  } else {
-    hideMeldControls();
-  }
-}
-
-function showMeldControls() {
-  const selectedCardsEl = document.getElementById('selected-cards');
-  selectedCardsEl.innerHTML = '';
-  
-  selectedCards.forEach(function(index) {
-    const card = currentPlayerHand[index];
-    const cardEl = document.createElement('div');
-    cardEl.className = 'card';
-    cardEl.textContent = getCardDisplay(card);
-    selectedCardsEl.appendChild(cardEl);
-  });
-  
-  document.getElementById('meld-controls').classList.remove('hidden');
-}
-
-function hideMeldControls() {
-  document.getElementById('meld-controls').classList.add('hidden');
-}
-
-async function confirmMeld() {
-  if (!isMyTurn) return;
-  
-  try {
-    const selectedCardsData = selectedCards.map(function(index) {
-      return currentPlayerHand[index];
-    });
-    
-    if (!validateMeld(selectedCardsData, gameState.contract)) {
-      alert("This combination doesn't satisfy the current contract!");
-      return;
+  // For discarding, only allow selecting one card
+  if (mustDiscard) {
+    selectedCards = [index];
+  } 
+  // For melds, allow selecting multiple cards
+  else {
+    const cardIndex = selectedCards.indexOf(index);
+    if (cardIndex === -1) {
+      selectedCards.push(index);
+    } else {
+      selectedCards.splice(cardIndex, 1);
     }
-    
-    const updates = {};
-    
-    // Remove cards from hand
-    const newHand = currentPlayerHand.filter(function(_, i) {
-      return !selectedCards.includes(i);
-    });
-    updates[`games/${gameId}/players/${playerId}/hand`] = newHand;
-    
-    // Add to melds
-    const newMelds = [...(gameState.players[playerId]?.melds || []), selectedCardsData];
-    updates[`games/${gameId}/players/${playerId}/melds`] = newMelds;
-    
-    // Switch turns
-    updates[`games/${gameId}/currentPlayer`] = 
-      Object.keys(gameState.players).find(function(id) {
-        return id !== playerId;
-      }) || "player_2";
-    
-    // Update Firebase
-    await database.ref().update(updates);
-    
-    // Reset selection
-    selectedCards = [];
-    hideMeldControls();
-    
-    console.log("Meld confirmed successfully");
-    
-  } catch (error) {
-    console.error("Error confirming meld:", error);
-    alert("Failed to create meld. See console for details.");
   }
-}
-
-function cancelMeld() {
-  selectedCards = [];
-  hideMeldControls();
+  
   renderHand();
+  updateButtonStates();
 }
 
-async function drawCard() {
-  if (!isMyTurn) {
-    alert("It's not your turn!");
-    return;
-  }
+async function handleDraw() {
+  if (!isMyTurn || hasDrawnCard || gameState.currentPhase !== "draw") return;
   
   try {
     const deck = [...gameState.deck];
     if (deck.length === 0) {
-      alert("No cards left in the draw pile!");
+      alert("No cards left to draw!");
       return;
     }
     
@@ -437,89 +346,109 @@ async function drawCard() {
     await database.ref('games/' + gameId).update({
       deck: deck,
       [`players/${playerId}/hand`]: newHand,
-      currentPlayer: Object.keys(gameState.players).find(function(id) {
-        return id !== playerId;
-      }) || "player_2"
+      currentPhase: "discard"
     });
     
-    console.log("Card drawn successfully");
+    hasDrawnCard = true;
+    mustDiscard = true;
     
   } catch (error) {
     console.error("Error drawing card:", error);
-    alert("Failed to draw card. See console for details.");
+    alert("Failed to draw card");
   }
 }
 
-async function pickupFromDiscard() {
-  if (!isMyTurn) {
-    alert("It's not your turn!");
-    return;
-  }
+async function handlePickupDiscard() {
+  if (!isMyTurn || hasDrawnCard || gameState.currentPhase !== "draw" || !gameState.discardPile?.length) return;
   
   try {
     const discardPile = [...gameState.discardPile];
-    if (discardPile.length === 0) {
-      alert("No cards in discard pile!");
-      return;
-    }
-    
     const pickedCard = discardPile.pop();
     const newHand = [...currentPlayerHand, pickedCard];
     
     await database.ref('games/' + gameId).update({
       discardPile: discardPile,
       [`players/${playerId}/hand`]: newHand,
-      currentPlayer: Object.keys(gameState.players).find(function(id) {
-        return id !== playerId;
-      }) || "player_2"
+      currentPhase: "discard"
     });
     
-    console.log("Card picked from discard successfully");
+    hasDrawnCard = true;
+    mustDiscard = true;
     
   } catch (error) {
     console.error("Error picking from discard:", error);
-    alert("Failed to pick up card. See console for details.");
+    alert("Failed to pick up card");
   }
 }
 
-function validateMeld(cards, contract) {
-  if (!cards || cards.length < 3) return false;
+async function discardCard() {
+  if (!isMyTurn || !mustDiscard || selectedCards.length !== 1) return;
   
-  switch (contract) {
-    case "2 Trios":
-      return cards.length >= 6 && 
-             isTrio(cards.slice(0, 3)) && 
-             isTrio(cards.slice(3, 6));
-    case "1 Trio + 1 Sequence of 4":
-      return (isTrio(cards.slice(0, 3)) && isSequence(cards.slice(3, 7))) ||
-             (isSequence(cards.slice(0, 4)) && isTrio(cards.slice(4, 7)));
-    case "2 Sequences of 4":
-      return cards.length >= 8 && 
-             isSequence(cards.slice(0, 4)) && 
-             isSequence(cards.slice(4, 8));
-    case "3 Trios":
-      return cards.length >= 9 && 
-             isTrio(cards.slice(0, 3)) && 
-             isTrio(cards.slice(3, 6)) && 
-             isTrio(cards.slice(6, 9));
-    case "2 Trios + 1 Sequence of 4":
-      return cards.length >= 10 &&
-             isTrio(cards.slice(0, 3)) &&
-             isTrio(cards.slice(3, 6)) &&
-             isSequence(cards.slice(6, 10));
-    case "2 Sequences of 4 + 1 Trio":
-      return cards.length >= 11 &&
-             isSequence(cards.slice(0, 4)) &&
-             isSequence(cards.slice(4, 8)) &&
-             isTrio(cards.slice(8, 11));
-    case "3 Sequences of 4":
-      return cards.length >= 12 &&
-             isSequence(cards.slice(0, 4)) &&
-             isSequence(cards.slice(4, 8)) &&
-             isSequence(cards.slice(8, 12));
-    default:
-      return false;
+  try {
+    const discardIndex = selectedCards[0];
+    const cardToDiscard = currentPlayerHand[discardIndex];
+    const newHand = currentPlayerHand.filter((_, i) => i !== discardIndex);
+    
+    const updates = {
+      [`players/${playerId}/hand`]: newHand,
+      discardPile: [...gameState.discardPile, cardToDiscard],
+      currentPhase: "draw",
+      currentPlayer: getNextPlayerId()
+    };
+    
+    await database.ref('games/' + gameId).update(updates);
+    
+    // Reset selection
+    selectedCards = [];
+    hasDrawnCard = false;
+    mustDiscard = false;
+    
+  } catch (error) {
+    console.error("Error discarding card:", error);
+    alert("Failed to discard card");
   }
+}
+
+function getNextPlayerId() {
+  const playerIds = Object.keys(gameState.players);
+  const currentIndex = playerIds.indexOf(gameState.currentPlayer);
+  return playerIds[(currentIndex + 1) % playerIds.length];
+}
+
+async function confirmMeld() {
+  if (!isMyTurn || selectedCards.length < 3) return;
+  
+  try {
+    const selectedCardsData = selectedCards.map(i => currentPlayerHand[i]);
+    
+    if (!validateMeld(selectedCardsData, gameState.contract)) {
+      alert("This doesn't satisfy the current contract!");
+      return;
+    }
+    
+    const newHand = currentPlayerHand.filter((_, i) => !selectedCards.includes(i));
+    const newMelds = [...(gameState.players[playerId]?.melds || []), selectedCardsData];
+    
+    await database.ref('games/' + gameId).update({
+      [`players/${playerId}/hand`]: newHand,
+      [`players/${playerId}/melds`]: newMelds
+    });
+    
+    selectedCards = [];
+    
+  } catch (error) {
+    console.error("Error confirming meld:", error);
+    alert("Failed to create meld");
+  }
+}
+
+function cancelMeld() {
+  selectedCards = [];
+  renderHand();
+}
+
+function validateMeld(cards, contract) {
+  // ... (same validation logic as before) ...
 }
 
 function getContractForRound(round) {
