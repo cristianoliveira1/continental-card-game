@@ -1,5 +1,5 @@
-// Card deck utilities
-export function createDeck() {
+// cards.js - Updated for browser compatibility
+function createDeck() {
   const suits = ['♥', '♦', '♣', '♠'];
   const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
   let deck = [];
@@ -20,7 +20,7 @@ export function createDeck() {
   return deck;
 }
 
-export function shuffleDeck(deck) {
+function shuffleDeck(deck) {
   for (let i = deck.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -28,18 +28,18 @@ export function shuffleDeck(deck) {
   return deck;
 }
 
-export function getCardDisplay(card) {
+function getCardDisplay(card) {
   if (card.rank === 'JOKER') return '🃏';
   return `${card.rank}${card.suit}`;
 }
 
-export function isTrio(cards) {
+function isTrio(cards) {
   if (cards.length !== 3) return false;
   const ranks = cards.map(card => card.rank);
   return new Set(ranks).size === 1;
 }
 
-export function isSequence(cards) {
+function isSequence(cards) {
   if (cards.length < 3) return false;
   
   // Check all same suit

@@ -10,7 +10,7 @@ const firebaseConfig = {
   measurementId: "G-82PMRG5B0S"
 };
 
-// Global variables
+// Global game variables
 let database;
 let gameId;
 let playerId = "player_" + Math.random().toString(36).substring(2, 9);
@@ -19,8 +19,8 @@ let selectedCards = [];
 let gameState = {};
 let isMyTurn = false;
 
-// Initialize Firebase and game when DOM loads
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize everything when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
   try {
     // Initialize Firebase
     if (!firebase.apps.length) {
@@ -29,41 +29,11 @@ document.addEventListener('DOMContentLoaded', () => {
     database = firebase.database();
     console.log("Firebase initialized successfully");
 
-    // Get DOM elements
-    const startGameBtn = document.getElementById('start-game');
-    const joinGameBtn = document.getElementById('join-game');
-    const gameIdInput = document.getElementById('game-id-input');
-    const playerHandEl = document.getElementById('player-hand');
-    const playerMeldsEl = document.getElementById('player-melds');
-    const discardPileEl = document.querySelector('#discard-pile .cards');
-    const drawPileEl = document.querySelector('#draw-pile .cards');
-    const roundEl = document.getElementById('round');
-    const contractEl = document.getElementById('contract');
-    const currentTurnEl = document.getElementById('current-turn');
-    const meldControlsEl = document.getElementById('meld-controls');
-    const selectedCardsEl = document.getElementById('selected-cards');
-    const confirmMeldBtn = document.getElementById('confirm-meld');
-    const cancelMeldBtn = document.getElementById('cancel-meld');
+    // Setup all event listeners
+    setupEventListeners();
 
-    // Set up event listeners
-    startGameBtn.addEventListener('click', async () => {
-      startGameBtn.disabled = true;
-      await startNewGame();
-      startGameBtn.disabled = false;
-    });
-
-    joinGameBtn.addEventListener('click', async () => {
-      joinGameBtn.disabled = true;
-      await joinExistingGame();
-      joinGameBtn.disabled = false;
-    });
-
-    gameIdInput.addEventListener('input', () => {
-      joinGameBtn.disabled = gameIdInput.value.trim() === '';
-    });
-
-    confirmMeldBtn.addEventListener('click', confirmMeld);
-    cancelMeldBtn.addEventListener('click', cancelMeld);
+    // Test connection
+    testFirebaseConnection();
 
     console.log("Game initialized successfully");
   } catch (error) {
@@ -72,21 +42,64 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+function setupEventListeners() {
+  // Start game button
+  document.getElementById('start-game').addEventListener('click', function() {
+    console.log("Start game button clicked");
+    startNewGame().catch(error => {
+      console.error("Game start failed:", error);
+      alert("Failed to start game. See console for details.");
+    });
+  });
+
+  // Join game button
+  document.getElementById('join-game').addEventListener('click', function() {
+    console.log("Join game button clicked");
+    joinExistingGame().catch(error => {
+      console.error("Join game failed:", error);
+      alert("Failed to join game. See console for details.");
+    });
+  });
+
+  // Game ID input
+  document.getElementById('game-id-input').addEventListener('input', function() {
+    document.getElementById('join-game').disabled = this.value.trim() === '';
+  });
+
+  // Meld controls
+  document.getElementById('confirm-meld').addEventListener('click', confirmMeld);
+  document.getElementById('cancel-meld').addEventListener('click', cancelMeld);
+}
+
+function testFirebaseConnection() {
+  const connectedRef = database.ref('.info/connected');
+  connectedRef.on('value', function(snap) {
+    console.log(snap.val() ? "Connected to Firebase" : "Disconnected from Firebase");
+  });
+}
+
 async function startNewGame() {
+  const startGameBtn = document.getElementById('start-game');
+  startGameBtn.disabled = true;
+  
   try {
+    console.log("Starting new game process...");
+    
     // Generate game ID
     gameId = "game_" + Math.random().toString(36).substring(2, 9);
     document.getElementById('game-id-input').value = gameId;
+    console.log("Game ID:", gameId);
     
     // Create and shuffle deck
     const deck = shuffleDeck(createDeck());
+    console.log("Deck created and shuffled");
     
     // Deal initial hands (2 players for demo)
     const player1Hand = deck.splice(0, 10);
     const player2Hand = deck.splice(0, 10);
     currentPlayerHand = player1Hand;
     
-    // Create game data
+    // Create game data structure
     const gameData = {
       deck: deck,
       discardPile: [],
@@ -107,36 +120,46 @@ async function startNewGame() {
     };
     
     // Write to Firebase
+    console.log("Writing to database...");
     await database.ref('games/' + gameId).set(gameData);
-    console.log("Game created successfully!");
+    console.log("Game data written successfully");
     
-    // Set up listeners and render
+    // Set up real-time listeners
     setupGameListeners();
+    
+    // Initial render
     renderGame();
     
-    alert(`Game started! Share this ID: ${gameId}`);
+    alert("Game started successfully!\nShare this ID: " + gameId);
+    
   } catch (error) {
-    console.error("Error starting game:", error);
-    alert("Failed to start game: " + error.message);
+    console.error("Error in startNewGame:", error);
+    throw error; // Re-throw for caller to handle
+  } finally {
+    startGameBtn.disabled = false;
   }
 }
 
 async function joinExistingGame() {
+  const joinGameBtn = document.getElementById('join-game');
+  joinGameBtn.disabled = true;
+  
   try {
     gameId = document.getElementById('game-id-input').value.trim();
     if (!gameId) {
-      alert("Please enter a game ID");
-      return;
+      throw new Error("Please enter a game ID");
     }
+    
+    console.log("Attempting to join game:", gameId);
     
     // Check if game exists
     const snapshot = await database.ref('games/' + gameId).once('value');
     if (!snapshot.exists()) {
-      alert("Game not found. Please check the ID.");
-      return;
+      throw new Error("Game not found. Please check the ID.");
     }
     
     gameState = snapshot.val();
+    console.log("Game found:", gameState);
     
     // Add player if not already in game
     if (!gameState.players[playerId]) {
@@ -155,42 +178,69 @@ async function joinExistingGame() {
       currentPlayerHand = gameState.players[playerId].hand;
     }
     
-    console.log("Joined game successfully!");
+    console.log("Player added to game successfully");
+    
+    // Set up real-time listeners
     setupGameListeners();
+    
+    // Initial render
     renderGame();
+    
+    alert("Successfully joined game: " + gameId);
+    
   } catch (error) {
-    console.error("Error joining game:", error);
-    alert("Failed to join game: " + error.message);
+    console.error("Error in joinExistingGame:", error);
+    throw error; // Re-throw for caller to handle
+  } finally {
+    joinGameBtn.disabled = false;
   }
 }
 
 function setupGameListeners() {
-  database.ref('games/' + gameId).on('value', (snapshot) => {
+  console.log("Setting up game listeners for:", gameId);
+  
+  database.ref('games/' + gameId).on('value', function(snapshot) {
     gameState = snapshot.val() || {};
-    currentPlayerHand = gameState.players?.[playerId]?.hand || [];
+    console.log("Game state updated:", gameState);
+    
+    // Update local references
+    if (gameState.players && gameState.players[playerId]) {
+      currentPlayerHand = gameState.players[playerId].hand;
+    }
+    
+    // Update turn status
     isMyTurn = gameState.currentPlayer === playerId;
+    
+    // Re-render the game
     renderGame();
   });
 }
 
 function renderGame() {
-  if (!gameState) return;
-
+  if (!gameState) {
+    console.warn("No game state to render");
+    return;
+  }
+  
+  console.log("Rendering game state...");
+  
   // Update game info
   document.getElementById('round').textContent = gameState.currentRound || 1;
   document.getElementById('contract').textContent = gameState.contract || "2 Trios";
-  document.getElementById('current-turn').textContent = isMyTurn ? "Your turn" : "Opponent's turn";
-  document.getElementById('current-turn').style.color = isMyTurn ? "green" : "red";
-
+  
+  const currentTurnEl = document.getElementById('current-turn');
+  currentTurnEl.textContent = isMyTurn ? "Your turn" : "Opponent's turn";
+  currentTurnEl.style.color = isMyTurn ? "green" : "red";
+  
   // Render player's hand
   renderHand();
-
+  
   // Render melds
   renderMelds();
-
+  
   // Render discard pile
   renderDiscardPile();
-
+  
   // Render draw pile
   renderDrawPile();
 }
@@ -199,7 +249,7 @@ function renderHand() {
   const playerHandEl = document.getElementById('player-hand');
   playerHandEl.innerHTML = '';
   
-  currentPlayerHand.forEach((card, index) => {
+  currentPlayerHand.forEach(function(card, index) {
     const cardEl = document.createElement('div');
     cardEl.className = 'card';
     cardEl.textContent = getCardDisplay(card);
@@ -210,7 +260,9 @@ function renderHand() {
     }
     
     if (isMyTurn) {
-      cardEl.addEventListener('click', () => selectCard(index));
+      cardEl.addEventListener('click', function() {
+        selectCard(index);
+      });
     }
     
     playerHandEl.appendChild(cardEl);
@@ -222,13 +274,13 @@ function renderMelds() {
   playerMeldsEl.innerHTML = '';
   const melds = gameState.players?.[playerId]?.melds || [];
   
-  melds.forEach((meld, i) => {
+  melds.forEach(function(meld, i) {
     const meldEl = document.createElement('div');
     meldEl.className = 'meld';
     meldEl.innerHTML = `<h4>Meld ${i + 1}</h4><div class="meld-cards"></div>`;
     
     const cardsContainer = meldEl.querySelector('.meld-cards');
-    meld.forEach(card => {
+    meld.forEach(function(card) {
       const cardEl = document.createElement('div');
       cardEl.className = 'card';
       cardEl.textContent = getCardDisplay(card);
@@ -266,7 +318,7 @@ function renderDrawPile() {
   if (deck.length > 0) {
     const cardEl = document.createElement('div');
     cardEl.className = 'card';
-    cardEl.textContent = '🂠';
+    cardEl.textContent = '🂠'; // Card back
     
     if (isMyTurn) {
       cardEl.addEventListener('click', drawCard);
@@ -299,7 +351,7 @@ function showMeldControls() {
   const selectedCardsEl = document.getElementById('selected-cards');
   selectedCardsEl.innerHTML = '';
   
-  selectedCards.forEach(index => {
+  selectedCards.forEach(function(index) {
     const card = currentPlayerHand[index];
     const cardEl = document.createElement('div');
     cardEl.className = 'card';
@@ -318,27 +370,42 @@ async function confirmMeld() {
   if (!isMyTurn) return;
   
   try {
-    const selectedCardsData = selectedCards.map(index => currentPlayerHand[index]);
+    const selectedCardsData = selectedCards.map(function(index) {
+      return currentPlayerHand[index];
+    });
     
     if (!validateMeld(selectedCardsData, gameState.contract)) {
-      alert("This doesn't satisfy the current contract!");
+      alert("This combination doesn't satisfy the current contract!");
       return;
     }
     
     const updates = {};
-    const newHand = currentPlayerHand.filter((_, i) => !selectedCards.includes(i));
+    
+    // Remove cards from hand
+    const newHand = currentPlayerHand.filter(function(_, i) {
+      return !selectedCards.includes(i);
+    });
     updates[`games/${gameId}/players/${playerId}/hand`] = newHand;
     
+    // Add to melds
     const newMelds = [...(gameState.players[playerId]?.melds || []), selectedCardsData];
     updates[`games/${gameId}/players/${playerId}/melds`] = newMelds;
     
+    // Switch turns
     updates[`games/${gameId}/currentPlayer`] = 
-      Object.keys(gameState.players).find(id => id !== playerId) || "player_2";
+      Object.keys(gameState.players).find(function(id) {
+        return id !== playerId;
+      }) || "player_2";
     
+    // Update Firebase
     await database.ref().update(updates);
     
+    // Reset selection
     selectedCards = [];
     hideMeldControls();
+    
+    console.log("Meld confirmed successfully");
+    
   } catch (error) {
     console.error("Error confirming meld:", error);
     alert("Failed to create meld. See console for details.");
@@ -369,9 +436,14 @@ async function drawCard() {
     
     await database.ref('games/' + gameId).update({
       deck: deck,
-      [`players/${playerId}/hand`] : newHand,
-      currentPlayer: Object.keys(gameState.players).find(id => id !== playerId) || "player_2"
+      [`players/${playerId}/hand`]: newHand,
+      currentPlayer: Object.keys(gameState.players).find(function(id) {
+        return id !== playerId;
+      }) || "player_2"
     });
+    
+    console.log("Card drawn successfully");
+    
   } catch (error) {
     console.error("Error drawing card:", error);
     alert("Failed to draw card. See console for details.");
@@ -396,11 +468,16 @@ async function pickupFromDiscard() {
     
     await database.ref('games/' + gameId).update({
       discardPile: discardPile,
-      [`players/${playerId}/hand`] : newHand,
-      currentPlayer: Object.keys(gameState.players).find(id => id !== playerId) || "player_2"
+      [`players/${playerId}/hand`]: newHand,
+      currentPlayer: Object.keys(gameState.players).find(function(id) {
+        return id !== playerId;
+      }) || "player_2"
     });
+    
+    console.log("Card picked from discard successfully");
+    
   } catch (error) {
-    console.error("Error picking up from discard:", error);
+    console.error("Error picking from discard:", error);
     alert("Failed to pick up card. See console for details.");
   }
 }
