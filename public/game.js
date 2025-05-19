@@ -237,14 +237,23 @@ function setupGameListeners() {
   if (!gameId) return;
   
   database.ref('games/' + gameId).on('value', function(snapshot) {
-    gameState = snapshot.val() || {};
+    const newState = snapshot.val();
+    if (!newState) return;
     
-    // Update player hand
-    if (gameState.players && gameState.players[playerId]) {
-      currentPlayerHand = gameState.players[playerId].hand;
+    // Validate game state
+    if (!newState.players || !newState.currentPlayer) {
+      console.error("Invalid game state received", newState);
+      return;
     }
     
-    // Update turn status
+    gameState = newState;
+    
+    // Update player hand
+    if (gameState.players[playerId]) {
+      currentPlayerHand = gameState.players[playerId].hand || [];
+    }
+    
+    // Update turn status with additional validation
     isMyTurn = gameState.currentPlayer === playerId;
     
     // Update phase tracking
@@ -428,23 +437,27 @@ async function handleDraw() {
   if (!isMyTurn || hasDrawnCard || gameState.currentPhase !== "draw") return;
   
   try {
-    const deck = [...gameState.deck];
-    if (deck.length === 0) {
-      alert("No cards left to draw!");
-      return;
-    }
-    
-    const drawnCard = deck.pop();
-    const newHand = [...currentPlayerHand, drawnCard];
-    
-    await database.ref('games/' + gameId).update({
-      deck: deck,
-      [`players/${playerId}/hand`]: newHand,
-      currentPhase: "discard"
+    // Use transaction to prevent race conditions
+    await database.ref('games/' + gameId).transaction((currentData) => {
+      if (!currentData) return null;
+      
+      // Verify game state is still valid for drawing
+      if (currentData.currentPlayer !== playerId || 
+          currentData.currentPhase !== "draw" ||
+          !currentData.deck?.length) {
+        return currentData;
+      }
+      
+      // Perform draw
+      const newDeck = [...currentData.deck];
+      const drawnCard = newDeck.pop();
+      
+      currentData.deck = newDeck;
+      currentData.players[playerId].hand = [...currentData.players[playerId].hand, drawnCard];
+      currentData.currentPhase = "discard";
+      
+      return currentData;
     });
-    
-    hasDrawnCard = true;
-    mustDiscard = true;
     
   } catch (error) {
     console.error("Error drawing card:", error);
@@ -456,18 +469,27 @@ async function handlePickupDiscard() {
   if (!isMyTurn || hasDrawnCard || gameState.currentPhase !== "draw" || !gameState.discardPile?.length) return;
   
   try {
-    const discardPile = [...gameState.discardPile];
-    const pickedCard = discardPile.pop();
-    const newHand = [...currentPlayerHand, pickedCard];
-    
-    await database.ref('games/' + gameId).update({
-      discardPile: discardPile,
-      [`players/${playerId}/hand`]: newHand,
-      currentPhase: "discard"
+    // Use transaction for discard pickup
+    await database.ref('games/' + gameId).transaction((currentData) => {
+      if (!currentData) return null;
+      
+      // Verify valid state
+      if (currentData.currentPlayer !== playerId || 
+          currentData.currentPhase !== "draw" ||
+          !currentData.discardPile?.length) {
+        return currentData;
+      }
+      
+      // Perform pickup
+      const newDiscardPile = [...currentData.discardPile];
+      const pickedCard = newDiscardPile.pop();
+      
+      currentData.discardPile = newDiscardPile;
+      currentData.players[playerId].hand = [...currentData.players[playerId].hand, pickedCard];
+      currentData.currentPhase = "discard";
+      
+      return currentData;
     });
-    
-    hasDrawnCard = true;
-    mustDiscard = true;
     
   } catch (error) {
     console.error("Error picking from discard:", error);
@@ -483,19 +505,27 @@ async function discardCard() {
     const cardToDiscard = currentPlayerHand[discardIndex];
     const newHand = currentPlayerHand.filter((_, i) => i !== discardIndex);
     
-    const updates = {
-      [`players/${playerId}/hand`]: newHand,
-      discardPile: [...gameState.discardPile, cardToDiscard],
-      currentPhase: "draw",
-      currentPlayer: getNextPlayerId()
-    };
+    // Use transaction for atomic turn change
+    await database.ref('games/' + gameId).transaction((currentData) => {
+      if (!currentData) return null;
+      
+      // Verify it's still our turn
+      if (currentData.currentPlayer !== playerId || 
+          currentData.currentPhase !== "discard") {
+        return currentData;
+      }
+      
+      // Update game state
+      currentData.players[playerId].hand = newHand;
+      currentData.discardPile = [...currentData.discardPile, cardToDiscard];
+      currentData.currentPhase = "draw";
+      currentData.currentPlayer = getNextPlayerId(currentData);
+      
+      return currentData;
+    });
     
-    await database.ref('games/' + gameId).update(updates);
-    
-    // Reset selection
+    // Reset UI state
     selectedCards = [];
-    hasDrawnCard = false;
-    mustDiscard = false;
     
   } catch (error) {
     console.error("Error discarding card:", error);
@@ -503,9 +533,10 @@ async function discardCard() {
   }
 }
 
-function getNextPlayerId() {
-  const playerIds = Object.keys(gameState.players);
-  const currentIndex = playerIds.indexOf(gameState.currentPlayer);
+function getNextPlayerId(gameState = null) {
+  const state = gameState || window.gameState;
+  const playerIds = Object.keys(state.players);
+  const currentIndex = playerIds.indexOf(state.currentPlayer);
   return playerIds[(currentIndex + 1) % playerIds.length];
 }
 
@@ -592,4 +623,71 @@ function getContractForRound(round) {
     "3 Sequences of 4"
   ];
   return contracts[round - 1] || "Unknown Contract";
+}
+
+// Deck utilities
+function createDeck() {
+  const suits = ['H', 'D', 'C', 'S'];
+  const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+  const deck = [];
+  
+  for (let suit of suits) {
+    for (let value of values) {
+      deck.push(value + suit);
+    }
+  }
+  
+  return deck;
+}
+
+function shuffleDeck(deck) {
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+}
+
+function getCardDisplay(card) {
+  if (!card) return '';
+  const suit = card.slice(-1);
+  const value = card.slice(0, -1);
+  
+  const suitSymbols = {
+    'H': '♥',
+    'D': '♦',
+    'C': '♣',
+    'S': '♠'
+  };
+  
+  return value + suitSymbols[suit];
+}
+
+function isTrio(cards) {
+  if (cards.length < 3) return false;
+  const values = cards.map(card => card.slice(0, -1));
+  return new Set(values).size === 1;
+}
+
+function isSequence(cards) {
+  if (cards.length < 3) return false;
+  
+  const valueOrder = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+  const suits = cards.map(card => card.slice(-1));
+  const values = cards.map(card => card.slice(0, -1));
+  
+  // All cards must be same suit
+  if (new Set(suits).size !== 1) return false;
+  
+  // Get numerical indices of values
+  const indices = values.map(val => valueOrder.indexOf(val)).sort((a, b) => a - b);
+  
+  // Check for consecutive values
+  for (let i = 1; i < indices.length; i++) {
+    if (indices[i] !== indices[i-1] + 1) {
+      return false;
+    }
+  }
+  
+  return true;
 }
