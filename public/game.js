@@ -2,13 +2,14 @@ import { createDeck, shuffleDeck, getCardDisplay, isTrio, isSequence } from './c
 
 // Firebase configuration
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  databaseURL: "https://YOUR_PROJECT.firebaseio.com",
-  projectId: "YOUR_PROJECT",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyCtBNQnfdPYZ_i97hR4lOAeAjaFUfcVM9I",
+  authDomain: "continental-7bd16.firebaseapp.com",
+  databaseURL: "https://continental-7bd16-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "continental-7bd16",
+  storageBucket: "continental-7bd16.firebasestorage.app",
+  messagingSenderId: "1061494214330",
+  appId: "1:1061494214330:web:cd45115d82bb7ba4f2fc83",
+  measurementId: "G-82PMRG5B0S"
 };
 
 // Initialize Firebase
