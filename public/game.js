@@ -369,7 +369,7 @@ async function drawCard() {
     
     await database.ref('games/' + gameId).update({
       deck: deck,
-      [`players/${playerId}/hand`] = newHand,
+      [`players/${playerId}/hand`] : newHand,
       currentPlayer: Object.keys(gameState.players).find(id => id !== playerId) || "player_2"
     });
   } catch (error) {
@@ -396,7 +396,7 @@ async function pickupFromDiscard() {
     
     await database.ref('games/' + gameId).update({
       discardPile: discardPile,
-      [`players/${playerId}/hand`] = newHand,
+      [`players/${playerId}/hand`] : newHand,
       currentPlayer: Object.keys(gameState.players).find(id => id !== playerId) || "player_2"
     });
   } catch (error) {
