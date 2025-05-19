@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portuguese Continental</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+</head>
+<body>
+  <div id="game">
+    <h1>Portuguese Continental</h1>
+    <div id="round-info">Round: <span id="round">1</span> | Contract: <span id="contract">2 Trios</span></div>
+    <div id="hand" class="hand"></div>
+    <div id="discard-pile"></div>
+    <button id="startGame">Start Game</button>
+  </div>
+  <script src="cards.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
