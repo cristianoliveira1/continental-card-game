@@ -3,24 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Continental</title>
+  <title>Portuguese Continental</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 </head>
 <body>
   <div id="game-container">
-    <h1>Continental</h1>
-    <div id="game-info">
-      <div>Round: <span id="round">1</span></div>
-      <div>Contract: <span id="contract">2 Trios</span></div>
-      <div>Turn: <span id="current-turn">You</span></div>
-    </div>
+    <h1>Portuguese Continental</h1>
     
     <div id="game-controls">
       <button id="start-game">Start New Game</button>
       <button id="join-game" disabled>Join Game</button>
       <input type="text" id="game-id-input" placeholder="Enter Game ID">
+      <button id="discard-btn" class="btn-discard" disabled>Discard Selected</button>
+    </div>
+    
+    <div id="game-info">
+      <div>Round: <span id="round">1</span></div>
+      <div>Contract: <span id="contract">2 Trios</span></div>
+      <div>Status: <span id="current-turn">Waiting</span> - <span id="current-phase"></span></div>
     </div>
     
     <div id="game-board">

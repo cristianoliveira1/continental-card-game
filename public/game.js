@@ -45,7 +45,7 @@ function setupEventListeners() {
   // Safe element checking
   const getElement = (id) => {
     const el = document.getElementById(id);
-    if (!el) console.error(`Element with ID '${id}' not found`);
+    if (!el) console.warn(`Element with ID '${id}' not found`);
     return el;
   };
 
@@ -95,6 +95,9 @@ function setupEventListeners() {
   const discardBtn = getElement('discard-btn');
   if (discardBtn) {
     discardBtn.addEventListener('click', discardCard);
+  } else {
+    console.warn("Discard button not found - creating fallback");
+    createFallbackDiscardButton();
   }
 
   // Meld controls
@@ -107,6 +110,20 @@ function setupEventListeners() {
   if (cancelMeldBtn) {
     cancelMeldBtn.addEventListener('click', cancelMeld);
   }
+}
+
+function createFallbackDiscardButton() {
+  const discardBtn = document.createElement('button');
+  discardBtn.id = 'discard-btn';
+  discardBtn.className = 'btn-discard';
+  discardBtn.textContent = 'Discard Selected';
+  discardBtn.disabled = true;
+  
+  const controlsDiv = document.getElementById('game-controls') || document.body;
+  controlsDiv.appendChild(discardBtn);
+  
+  discardBtn.addEventListener('click', discardCard);
+  console.log("Created fallback discard button");
 }
 
 async function startNewGame() {
